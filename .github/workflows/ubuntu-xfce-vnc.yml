@@ -3,31 +3,42 @@ name: Ubuntu XFCE noVNC
 on: [workflow_dispatch]
 
 jobs:
-  ubuntu-vnc:
+  start-desktop:
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
     steps:
-    - name: Install Desktop & VNC
-      run: |
-        sudo apt update
-        sudo apt install -y xfce4 xfce4-goodies tightvncserver firefox
-        vncserver :1
-        vncserver -kill :1
-        mkdir -p ~/.vnc
-        echo -e "#!/bin/bash\nxrdb $HOME/.Xresources\nstartxfce4 &" > ~/.vnc/xstartup
-        chmod +x ~/.vnc/xstartup
-        echo "P@ssw0rd!" | vncpasswd -f > ~/.vnc/passwd
-        chmod 600 ~/.vnc/passwd
-        vncserver :1
+      - name: Install XFCE and VNC
+        run: |
+          sudo apt update
+          sudo apt install -y xfce4 xfce4-goodies tightvncserver
+          vncserver :1 || true
+          vncserver -kill :1 || true
+          mkdir -p ~/.vnc
+          echo "#!/bin/bash
+          xrdb $HOME/.Xresources
+          startxfce4 &" > ~/.vnc/xstartup
+          chmod +x ~/.vnc/xstartup
+          # Use base64 encoded password for 'P@ssw0rd!' to avoid "too short" error
+          echo 'UEBzc3cwcmQhCg==' | base64 -d > ~/.vnc/passwd
+          chmod 600 ~/.vnc/passwd
+          vncserver :1
 
-    - name: Setup noVNC
-      run: |
-        sudo apt install -y git websockify python3-websockify
-        git clone https://github.com/novnc/noVNC.git
-        git clone https://github.com/novnc/websockify noVNC/utils/websockify
-        nohup ./noVNC/utils/launch.sh --vnc localhost:5901 --listen 6080 &
+      - name: Install noVNC
+        run: |
+          sudo apt install -y git python3-websockify
+          git clone https://github.com/novnc/noVNC.git
+          git clone https://github.com/novnc/websockify noVNC/utils/websockify
+          nohup ./noVNC/utils/launch.sh --vnc localhost:5901 --listen 6080 &
 
-    - name: Anti-Idle
-      run: |
-        while true; do echo "Running..."; sleep 60; done
+      - name: Setup ngrok tunnel
+        run: |
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt update && sudo apt install -y ngrok
+          ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+          nohup ngrok http 6080 &
+
+      - name: Anti-idle (Prevent timeout)
+        run: |
+          while true; do echo "Running..."; sleep 60; done
