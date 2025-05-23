@@ -16,7 +16,7 @@ jobs:
         mkdir -p ~/.vnc
         echo "#!/bin/bash\nxrdb $HOME/.Xresources\nstartxfce4 &" > ~/.vnc/xstartup
         chmod +x ~/.vnc/xstartup
-        echo "Lion2324rdp$$" | vncpasswd -f > ~/.vnc/passwd
+        echo "Lion232" | vncpasswd -f > ~/.vnc/passwd
         chmod 600 ~/.vnc/passwd
         vncserver :1
 
