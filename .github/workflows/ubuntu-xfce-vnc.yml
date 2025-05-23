@@ -1,34 +1,41 @@
-name: Ubuntu XFCE RDP
+name: Windows with Firefox (noVNC Access)
 
 on: [workflow_dispatch]
 
 jobs:
-  start-desktop:
-    runs-on: ubuntu-latest
+  desktop:
+    runs-on: windows-latest
     timeout-minutes: 360
 
     steps:
-      - name: Install XFCE and xRDP
+      - name: Install Chocolatey + Firefox
         run: |
-          sudo apt update
-          sudo apt install -y xfce4 xfce4-goodies xrdp
-          echo xfce4-session > ~/.xsession
-          sudo cp ~/.xsession /etc/skel
-          sudo systemctl enable xrdp
-          sudo systemctl restart xrdp
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+          choco install firefox -y
 
-      - name: Set user password (P@ssw0rd!)
+      - name: Download and install TightVNC
         run: |
-          echo 'runner:P@ssw0rd!' | sudo chpasswd
+          Invoke-WebRequest https://www.tightvnc.com/download/2.8.81/tightvnc-2.8.81-gpl-setup-64bit.msi -OutFile tightvnc.msi
+          Start-Process msiexec.exe -Wait -ArgumentList '/i tightvnc.msi /quiet'
 
-      - name: Setup ngrok tunnel
+      - name: Set VNC Password
         run: |
-          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
-          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
-          sudo apt update && sudo apt install -y ngrok
-          ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
-          nohup ngrok tcp 3389 &
+          cmd /c "echo P@ssw0rd! > pass.txt"
+          & "C:\Program Files\TightVNC\tvnserver.exe" -controlapp -passwordfile .\pass.txt
 
-      - name: Anti-idle (Prevent timeout)
+      - name: Download and start Ngrok TCP Tunnel
         run: |
-          while true; do echo "Running..."; sleep 60; done
+          Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
+          Expand-Archive ngrok.zip -DestinationPath .
+          .\ngrok.exe config add-authtoken $Env:NGROK_AUTH_TOKEN
+          Start-Process .\ngrok.exe -ArgumentList "tcp 5900"
+        env:
+          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+
+      - name: Anti-idle
+        run: |
+          for ($i = 0; $i -lt 720; $i++) {
+            Write-Output "Keeping alive... $i"
+            Start-Sleep -Seconds 30
+          }
