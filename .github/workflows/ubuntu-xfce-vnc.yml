@@ -1,41 +1,38 @@
-name: Windows with Firefox (noVNC Access)
+name: Windows Firefox via Ngrok (Browser Access)
 
 on: [workflow_dispatch]
 
 jobs:
-  desktop:
+  browser:
     runs-on: windows-latest
     timeout-minutes: 360
 
     steps:
-      - name: Install Chocolatey + Firefox
-        run: |
-          Set-ExecutionPolicy Bypass -Scope Process -Force
-          iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
-          choco install firefox -y
+      - name: Download Ngrok
+        run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
 
-      - name: Download and install TightVNC
-        run: |
-          Invoke-WebRequest https://www.tightvnc.com/download/2.8.81/tightvnc-2.8.81-gpl-setup-64bit.msi -OutFile tightvnc.msi
-          Start-Process msiexec.exe -Wait -ArgumentList '/i tightvnc.msi /quiet'
+      - name: Extract Ngrok
+        run: Expand-Archive ngrok.zip
 
-      - name: Set VNC Password
-        run: |
-          cmd /c "echo P@ssw0rd! > pass.txt"
-          & "C:\Program Files\TightVNC\tvnserver.exe" -controlapp -passwordfile .\pass.txt
-
-      - name: Download and start Ngrok TCP Tunnel
-        run: |
-          Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
-          Expand-Archive ngrok.zip -DestinationPath .
-          .\ngrok.exe config add-authtoken $Env:NGROK_AUTH_TOKEN
-          Start-Process .\ngrok.exe -ArgumentList "tcp 5900"
+      - name: Authenticate Ngrok
+        run: .\ngrok\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
         env:
           NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
 
-      - name: Anti-idle
+      - name: Install Firefox
+        run: |
+          Invoke-WebRequest -Uri "https://download.mozilla.org/?product=firefox-latest&os=win64&lang=en-US" -OutFile firefox.exe
+          Start-Process firefox.exe -ArgumentList "/silent" -Wait
+
+      - name: Launch Firefox
+        run: Start-Process "C:\Program Files\Mozilla Firefox\firefox.exe"
+
+      - name: Start Ngrok Tunnel to Remote Desktop (optional)
+        run: .\ngrok\ngrok.exe tcp 3389
+
+      - name: Prevent Idle Timeout
         run: |
           for ($i = 0; $i -lt 720; $i++) {
-            Write-Output "Keeping alive... $i"
+            Write-Output "Anti-idle active... $i"
             Start-Sleep -Seconds 30
           }
