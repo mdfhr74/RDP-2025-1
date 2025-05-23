@@ -1,38 +1,52 @@
-name: Windows Firefox via Ngrok (Browser Access)
+name: Ubuntu XFCE noVNC with Chrome
 
 on: [workflow_dispatch]
 
 jobs:
-  browser:
-    runs-on: windows-latest
+  start-desktop:
+    runs-on: ubuntu-latest
     timeout-minutes: 360
 
     steps:
-      - name: Download Ngrok
-        run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
-
-      - name: Extract Ngrok
-        run: Expand-Archive ngrok.zip
-
-      - name: Authenticate Ngrok
-        run: .\ngrok\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
-        env:
-          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-
-      - name: Install Firefox
+      - name: Install XFCE, VNC, and Chrome
         run: |
-          Invoke-WebRequest -Uri "https://download.mozilla.org/?product=firefox-latest&os=win64&lang=en-US" -OutFile firefox.exe
-          Start-Process firefox.exe -ArgumentList "/silent" -Wait
+          sudo apt update
+          sudo apt install -y xfce4 xfce4-goodies tightvncserver wget gnupg2
+          
+          # Install Google Chrome
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          echo 'deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main' | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt update
+          sudo apt install -y google-chrome-stable
 
-      - name: Launch Firefox
-        run: Start-Process "C:\Program Files\Mozilla Firefox\firefox.exe"
+          # Setup VNC
+          vncserver :1 || true
+          vncserver -kill :1 || true
+          mkdir -p ~/.vnc
+          echo "#!/bin/bash
+          xrdb $HOME/.Xresources
+          startxfce4 &" > ~/.vnc/xstartup
+          chmod +x ~/.vnc/xstartup
+          echo 'UEBzc3cwcmQhCg==' | base64 -d > ~/.vnc/passwd
+          chmod 600 ~/.vnc/passwd
+          vncserver :1
 
-      - name: Start Ngrok Tunnel to Remote Desktop (optional)
-        run: .\ngrok\ngrok.exe tcp 3389
-
-      - name: Prevent Idle Timeout
+      - name: Install noVNC and run
         run: |
-          for ($i = 0; $i -lt 720; $i++) {
-            Write-Output "Anti-idle active... $i"
-            Start-Sleep -Seconds 30
-          }
+          sudo apt install -y git python3-websockify
+          git clone https://github.com/novnc/noVNC.git
+          git clone https://github.com/novnc/websockify noVNC/utils/websockify
+          nohup bash -c './noVNC/utils/launch.sh --vnc localhost:5901 --listen 6080' > novnc.log 2>&1 &
+
+      - name: Setup ngrok tunnel
+        run: |
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt update && sudo apt install -y ngrok
+          ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+          sleep 10
+          nohup ngrok http 6080 > ngrok.log 2>&1 &
+
+      - name: Anti-idle (Prevent timeout)
+        run: |
+          while true; do echo "Running..."; sleep 60; done
