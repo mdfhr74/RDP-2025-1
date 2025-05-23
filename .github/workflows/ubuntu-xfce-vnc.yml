@@ -1,33 +1,40 @@
-name: Ubuntu XFCE VNC
+name: CI
 
-on: [workflow_dispatch]
+on: [push, workflow_dispatch]
 
 jobs:
-  start-desktop:
-    runs-on: ubuntu-latest
+  build:
+
+    runs-on: windows-latest
+    timeout-minutes: 360  # Set timeout to 6 hours
 
     steps:
-    - name: Set up XFCE and VNC
-      run: |
-        sudo apt update
-        sudo apt install -y xfce4 xfce4-goodies tightvncserver firefox
-        vncserver :1
-        vncserver -kill :1
-        mkdir -p ~/.vnc
-        echo "#!/bin/bash\nxrdb $HOME/.Xresources\nstartxfce4 &" > ~/.vnc/xstartup
-        chmod +x ~/.vnc/xstartup
-        echo "P@ssw0rd!" | vncpasswd -f > ~/.vnc/passwd
-        chmod 600 ~/.vnc/passwd
-        vncserver :1
+    - name: Download
+      run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
 
-    - name: Setup ngrok tunnel
-      run: |
-        curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
-        echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
-        sudo apt update && sudo apt install -y ngrok
-        ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
-        nohup ngrok tcp 5901 &
+    - name: Extract
+      run: Expand-Archive ngrok.zip
 
-    - name: Prevent idle timeout
+    - name: Auth
+      run: .\ngrok\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
+      env:
+        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+
+    - name: Enable TS
+      run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+
+    - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+    - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+
+    - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "P@ssw0rd!" -Force)
+
+    - name: Create Tunnel
+      run: .\ngrok\ngrok.exe tcp 3389
+
+    - name: Prevent Idle Timeout (Anti-idle)
       run: |
-        while true; do echo "Running..."; sleep 300; done
+        for ($i = 0; $i -lt 720; $i++) {
+          Write-Output "Keeping alive... $i"
+          Start-Sleep -Seconds 30
+        }
